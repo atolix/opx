@@ -9,12 +9,12 @@ use ratatui::{
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Wrap},
+    widgets::{Block, Borders, Gauge, Paragraph, Wrap},
     Terminal,
 };
 use std::{io::stdout, path::Path};
 
-use crate::markdown;
+use crate::{document::Document, markdown};
 
 pub fn run(path: &Path) -> Result<()> {
     let mut document = markdown::load(path)?;
@@ -27,17 +27,19 @@ pub fn run(path: &Path) -> Result<()> {
     result
 }
 
-fn app_loop(document: &mut crate::document::Document, path: &Path) -> Result<()> {
+fn app_loop(document: &mut Document, path: &Path) -> Result<()> {
     let backend = CrosstermBackend::new(stdout());
     let mut terminal = Terminal::new(backend)?;
     let mut selected = 0usize;
     let mut detail = false;
+    let mut status_message = String::new();
     loop {
-        terminal.draw(|frame| draw(frame, document, selected, detail))?;
+        terminal.draw(|frame| draw(frame, document, selected, detail, &status_message))?;
         if !event::poll(std::time::Duration::from_millis(250))? {
             continue;
         }
         if let Event::Key(key) = event::read()? {
+            status_message.clear();
             match key.code {
                 KeyCode::Char('q') => break,
                 KeyCode::Down | KeyCode::Char('j') => {
@@ -56,14 +58,13 @@ fn app_loop(document: &mut crate::document::Document, path: &Path) -> Result<()>
                         *document = updated;
                     }
                 }
-                KeyCode::Char('y') => {
-                    if let Some(task) = document.tasks.get(selected) {
-                        if let Some(command) = &task.command {
-                            let mut clipboard = arboard::Clipboard::new()?;
-                            clipboard.set_text(command.clone())?;
-                        }
+                KeyCode::Char('y') => match copy_selected(document, selected) {
+                    Ok(Some(title)) => status_message = format!("Copied command: {title}"),
+                    Ok(None) => {
+                        status_message = "Copy skipped: selected task has no command".into()
                     }
-                }
+                    Err(error) => status_message = format!("Copy failed: {error}"),
+                },
                 KeyCode::Enter => detail = !detail,
                 _ => {}
             }
@@ -72,66 +73,158 @@ fn app_loop(document: &mut crate::document::Document, path: &Path) -> Result<()>
     Ok(())
 }
 
+fn copy_selected(document: &Document, selected: usize) -> Result<Option<String>> {
+    let Some(task) = document.tasks.get(selected) else {
+        return Ok(None);
+    };
+    let Some(command) = &task.command else {
+        return Ok(None);
+    };
+    let mut clipboard = arboard::Clipboard::new()?;
+    clipboard.set_text(command.clone())?;
+    Ok(Some(task.title.clone()))
+}
+
 fn draw(
     frame: &mut ratatui::Frame,
-    document: &crate::document::Document,
+    document: &Document,
     selected: usize,
     detail: bool,
+    status_message: &str,
 ) {
     let area = frame.area();
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(1), Constraint::Length(2)])
+        .constraints([
+            Constraint::Length(2),
+            Constraint::Min(1),
+            Constraint::Length(2),
+        ])
         .split(area);
-    let title = format!(
-        "opx  {} / {}  {:.0}%",
-        document.completed_count(),
-        document.tasks.len(),
-        document.progress() * 100.0
-    );
-    let mut lines = vec![Line::from(Span::styled(
-        title,
-        Style::default().add_modifier(Modifier::BOLD),
-    ))];
-    let mut last_section: Option<&str> = None;
-    for task in &document.tasks {
-        if (!task.section.is_empty()).then_some(task.section.as_str()) != last_section {
-            if !task.section.is_empty() {
-                lines.push(Line::from(Span::styled(
-                    task.section.clone(),
-                    Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD),
-                )));
-            }
-            last_section = (!task.section.is_empty()).then_some(task.section.as_str());
-        }
-        let marker = if task.checked {
-            "✓"
-        } else if task.index == selected {
-            ">"
-        } else {
-            "○"
-        };
-        lines.push(Line::from(vec![Span::raw(format!(
-            " {} {}",
-            marker, task.title
-        ))]));
-        if detail && task.index == selected {
-            if let Some(command) = &task.command {
-                lines.push(Line::from(Span::styled(
-                    format!("   {}", command),
-                    Style::default().fg(Color::Yellow),
-                )));
-            }
-        }
-    }
-    let help = "j/k or arrows move   space toggle   y copy   enter detail   n next   q quit";
+    let progress = document.progress();
     frame.render_widget(
-        Paragraph::new(lines)
-            .block(Block::default().borders(Borders::ALL).title("Runbook"))
-            .wrap(Wrap { trim: false }),
+        Gauge::default()
+            .block(Block::default().borders(Borders::ALL).title(format!(
+                "opx  {} / {}",
+                document.completed_count(),
+                document.tasks.len()
+            )))
+            .gauge_style(Style::default().fg(Color::Green))
+            .label(format!("{:.0}%", progress * 100.0))
+            .ratio(progress),
         chunks[0],
     );
-    frame.render_widget(Paragraph::new(help), chunks[1]);
+
+    if detail {
+        let panes = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(64), Constraint::Percentage(36)])
+            .split(chunks[1]);
+        frame.render_widget(
+            Paragraph::new(task_lines(document, selected)).block(runbook_block()),
+            panes[0],
+        );
+        frame.render_widget(
+            Paragraph::new(detail_lines(document, selected))
+                .block(Block::default().borders(Borders::ALL).title("Detail"))
+                .wrap(Wrap { trim: false }),
+            panes[1],
+        );
+    } else {
+        frame.render_widget(
+            Paragraph::new(task_lines(document, selected)).block(runbook_block()),
+            chunks[1],
+        );
+    }
+
+    let footer = if status_message.is_empty() {
+        "j/k or arrows move   space toggle   y copy   enter detail   n next   q quit".to_string()
+    } else {
+        format!("{status_message}   |   j/k move   space toggle   enter detail   q quit")
+    };
+    frame.render_widget(Paragraph::new(footer), chunks[2]);
+}
+
+fn runbook_block() -> Block<'static> {
+    Block::default().borders(Borders::ALL).title("Runbook")
+}
+
+fn task_lines(document: &Document, selected: usize) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+    let mut last_path: Vec<String> = Vec::new();
+    for task in &document.tasks {
+        let common = last_path
+            .iter()
+            .zip(&task.section_path)
+            .take_while(|(left, right)| left == right)
+            .count();
+        for (depth, heading) in task.section_path.iter().enumerate().skip(common) {
+            lines.push(Line::from(Span::styled(
+                format!("{}{}", "  ".repeat(depth), heading),
+                Style::default()
+                    .fg(if depth == 0 { Color::Cyan } else { Color::Blue })
+                    .add_modifier(Modifier::BOLD),
+            )));
+        }
+        last_path = task.section_path.clone();
+
+        let selected_style = if task.index == selected {
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
+        } else if task.checked {
+            Style::default().fg(Color::Green)
+        } else {
+            Style::default().fg(Color::Gray)
+        };
+        let marker = if task.checked { "✓" } else { "○" };
+        let indent = "  ".repeat(task.section_path.len());
+        lines.push(Line::from(vec![
+            Span::styled(format!("{indent}{marker} "), selected_style),
+            Span::styled(task.title.clone(), selected_style),
+        ]));
+    }
+    lines
+}
+
+fn detail_lines(document: &Document, selected: usize) -> Vec<Line<'static>> {
+    let Some(task) = document.tasks.get(selected) else {
+        return vec![Line::from("No task selected")];
+    };
+    let mut lines = vec![
+        Line::from(Span::styled(
+            task.title.clone(),
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(format!(
+            "Status: {}",
+            if task.checked { "checked" } else { "unchecked" }
+        )),
+        Line::from(format!(
+            "Section: {}",
+            if task.section_path.is_empty() {
+                "(root)".to_string()
+            } else {
+                task.section_path.join(" > ")
+            }
+        )),
+    ];
+    if let Some(language) = &task.language {
+        lines.push(Line::from(format!("Language: {language}")));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "Command",
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
+    )));
+    if let Some(command) = &task.command {
+        lines.extend(command.lines().map(|line| Line::from(format!("  {line}"))));
+    } else {
+        lines.push(Line::from("  (none)"));
+    }
+    lines
 }
