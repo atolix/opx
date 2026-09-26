@@ -102,16 +102,17 @@ fn draw(
         ])
         .split(area);
     let progress = document.progress();
+    let progress_percent = (progress * 100.0).round().clamp(0.0, 100.0) as u16;
     frame.render_widget(
         Gauge::default()
             .block(Block::default().borders(Borders::ALL).title(format!(
-                "opx  {} / {}",
+                "opx  Progress {} / {}",
                 document.completed_count(),
                 document.tasks.len()
             )))
-            .gauge_style(Style::default().fg(Color::Green))
-            .label(format!("{:.0}%", progress * 100.0))
-            .ratio(progress),
+            .gauge_style(Style::default().fg(Color::LightCyan))
+            .label(format!("{progress_percent}%"))
+            .percent(progress_percent),
         chunks[0],
     );
 
@@ -170,10 +171,10 @@ fn task_lines(document: &Document, selected: usize) -> Vec<Line<'static>> {
 
         let selected_style = if task.index == selected {
             Style::default()
-                .fg(Color::Yellow)
+                .fg(Color::Rgb(255, 105, 180))
                 .add_modifier(Modifier::BOLD)
         } else if task.checked {
-            Style::default().fg(Color::Green)
+            Style::default().fg(Color::LightCyan)
         } else {
             Style::default().fg(Color::Gray)
         };
