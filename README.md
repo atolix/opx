@@ -1,32 +1,32 @@
 # opx
 
-Markdownを正本として扱う、ターミナル向けのrunbook/checklist CLIです。チェック状態はMarkdownのtask marker (`[ ]` / `[x]`) に直接保存します。独自DBや状態ファイルは作成しません。
+A terminal runbook/checklist CLI that treats Markdown as the source of truth. Checked state is saved directly in Markdown task markers (`[ ]` / `[x]`). No separate database or state file is created.
 
-## インストール
+## Installation
 
-Rust stableを用意して、リポジトリのルートで実行します。
+Install Rust stable, then run this from the repository root:
 
 ```sh
 cargo install --path .
 ```
 
-## Markdown例
+## Markdown example
 
 ````md
 # Deploy
 
 ## Build
 
-- [ ] Docker imageをbuildする
+- [ ] Build the Docker image
 
 ```sh
 docker build -t app .
 ```
 
-- [ ] imageを確認する
+- [ ] Verify the image
 ````
 
-taskの直後（空行は可）にあるfenced code blockが、そのtaskの関連commandになります。commandは自動実行されません。
+A fenced code block immediately following a task (blank lines are allowed) is associated with that task as its command. Commands are never executed automatically.
 
 ## CLI
 
@@ -40,37 +40,37 @@ opx uncheck runbook.md 0
 opx copy runbook.md 0
 ```
 
-task indexは0始まりです。通常の結果はstdout、エラーはstderrに出力されます。未完了taskがない場合の `next` は非0終了します。
+Task indexes start at 0. Normal output goes to stdout, errors and warnings go to stderr, and `next` exits non-zero when there are no unchecked tasks.
 
-JSONの例:
+Example JSON:
 
 ```json
 {
   "index": 1,
   "section": "Database",
-  "title": "migrationを実行する",
+  "title": "Run the migration",
   "checked": false,
   "language": "sh",
   "command": "bundle exec rails db:migrate"
 }
 ```
 
-`status --json` は `total`、`completed`、`progress`、`tasks` を返します。多層headingの場合、taskには最も近いheadingが `section` として入り、上位からの階層が `section_path` に入ります。
+`status --json` returns `total`, `completed`, `progress`, and `tasks`. For nested headings, `section` contains the nearest heading and `section_path` contains the full hierarchy from the top-level heading.
 
-task直下から次のtaskまたはheadingまでにある通常本文は、そのtaskの `details` として扱われます。TUIの右側detail panelとJSONで確認できます。task直後のfenced code blockは `details` ではなく関連commandとして扱います。
+Normal text between a task and the next task or heading is associated with that task as `details`. It is shown in the TUI detail panel and included in JSON. A fenced code block immediately following a task is treated as its command rather than as `details`.
 
-## TUIキーバインド
+## TUI key bindings
 
-| キー | 操作 |
+| Key | Action |
 | --- | --- |
-| `j` / `Down` | 次のtask |
-| `k` / `Up` | 前のtask |
-| `Space` / `x` | checked / unchecked切り替え（即時保存） |
-| `y` | 関連commandをclipboardへコピー |
-| `Enter` | 右側のdetail panelを開閉 |
-| `n` | 次の未完了taskへ移動 |
-| `q` | 終了 |
+| `j` / `Down` | Move to the next task |
+| `k` / `Up` | Move to the previous task |
+| `Space` / `x` | Toggle checked / unchecked and save immediately |
+| `y` | Copy the associated command to the clipboard |
+| `Enter` | Open or close the right-side detail panel |
+| `n` | Move to the next unchecked task |
+| `q` | Quit |
 
-コードブロックの内容を実行する機能はありません。コピー操作もclipboardへの書き込みだけを行います。
+The TUI displays the completed count and a progress bar at the top. The selected task uses a bright blue-purple color, completed tasks use a muted color with a strikethrough on the title, and unchecked tasks use gray. Pressing `y` shows the copy result at the bottom. The detail panel shows the task status, heading hierarchy, language, command, and task-adjacent details.
 
-TUIでは、上部に完了数とプログレスバーを表示します。選択中taskは明るめの青紫、完了taskは非活性色とタイトル部分の取り消し線、未完了taskは灰色で表示されます。`y` でコピーすると画面下部にコピー結果が表示されます。`Enter` で開く右側panelにはtaskの状態、階層、language、commandを表示します。
+Commands in code blocks are never executed. Copying a command only writes it to the clipboard.
