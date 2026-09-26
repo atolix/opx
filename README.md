@@ -55,7 +55,7 @@ JSONの例:
 }
 ```
 
-`status --json` は `total`、`completed`、`progress`、`tasks` を返します。
+`status --json` は `total`、`completed`、`progress`、`tasks` を返します。多層headingの場合、taskには最も近いheadingが `section` として入り、上位からの階層が `section_path` に入ります。
 
 ## TUIキーバインド
 
@@ -65,8 +65,10 @@ JSONの例:
 | `k` / `Up` | 前のtask |
 | `Space` | checked / unchecked切り替え（即時保存） |
 | `y` | 関連commandをclipboardへコピー |
-| `Enter` | task詳細とcode block表示 |
+| `Enter` | 右側のdetail panelを開閉 |
 | `n` | 次の未完了taskへ移動 |
 | `q` | 終了 |
 
 コードブロックの内容を実行する機能はありません。コピー操作もclipboardへの書き込みだけを行います。
+
+TUIでは、上部に完了数とプログレスバーを表示します。選択中taskは黄色、完了taskは緑色、未完了taskは灰色で表示されます。`y` でコピーすると画面下部にコピー結果が表示されます。`Enter` で開く右側panelにはtaskの状態、階層、language、commandを表示します。

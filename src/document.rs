@@ -8,7 +8,6 @@ pub struct Task {
     pub checked: bool,
     pub language: Option<String>,
     pub command: Option<String>,
-    #[serde(skip)]
     pub section_path: Vec<String>,
     #[serde(skip)]
     pub section_level: usize,
