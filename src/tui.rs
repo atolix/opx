@@ -169,20 +169,23 @@ fn task_lines(document: &Document, selected: usize) -> Vec<Line<'static>> {
         }
         last_path = task.section_path.clone();
 
-        let selected_style = if task.index == selected {
+        let mut task_style = if task.index == selected {
             Style::default()
-                .fg(Color::Rgb(220, 90, 180))
+                .fg(Color::Rgb(120, 100, 255))
                 .add_modifier(Modifier::BOLD)
         } else if task.checked {
-            Style::default().fg(Color::LightCyan)
+            Style::default().fg(Color::DarkGray)
         } else {
             Style::default().fg(Color::Gray)
         };
+        if task.checked {
+            task_style = task_style.add_modifier(Modifier::CROSSED_OUT);
+        }
         let marker = if task.checked { "✓" } else { "○" };
         let indent = "  ".repeat(task.section_path.len());
         lines.push(Line::from(vec![
-            Span::styled(format!("{indent}{marker} "), selected_style),
-            Span::styled(task.title.clone(), selected_style),
+            Span::styled(format!("{indent}{marker} "), task_style),
+            Span::styled(task.title.clone(), task_style),
         ]));
     }
     lines
