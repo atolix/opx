@@ -63,7 +63,7 @@ JSONの例:
 | --- | --- |
 | `j` / `Down` | 次のtask |
 | `k` / `Up` | 前のtask |
-| `Space` | checked / unchecked切り替え（即時保存） |
+| `Space` / `x` | checked / unchecked切り替え（即時保存） |
 | `y` | 関連commandをclipboardへコピー |
 | `Enter` | 右側のdetail panelを開閉 |
 | `n` | 次の未完了taskへ移動 |
@@ -71,4 +71,4 @@ JSONの例:
 
 コードブロックの内容を実行する機能はありません。コピー操作もclipboardへの書き込みだけを行います。
 
-TUIでは、上部に完了数とプログレスバーを表示します。選択中taskは赤ピンク、完了taskは水色、未完了taskは灰色で表示されます。`y` でコピーすると画面下部にコピー結果が表示されます。`Enter` で開く右側panelにはtaskの状態、階層、language、commandを表示します。
+TUIでは、上部に完了数とプログレスバーを表示します。選択中taskは黄色、完了taskは水色、未完了taskは灰色で表示されます。`y` でコピーすると画面下部にコピー結果が表示されます。`Enter` で開く右側panelにはtaskの状態、階層、language、commandを表示します。

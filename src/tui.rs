@@ -51,7 +51,7 @@ fn app_loop(document: &mut Document, path: &Path) -> Result<()> {
                         selected = task.index;
                     }
                 }
-                KeyCode::Char(' ') => {
+                KeyCode::Char(' ') | KeyCode::Char('x') => {
                     if let Some(task) = document.tasks.get(selected) {
                         let updated = document.with_checked(selected, !task.checked)?;
                         markdown::save(path, &updated)?;
@@ -171,7 +171,7 @@ fn task_lines(document: &Document, selected: usize) -> Vec<Line<'static>> {
 
         let selected_style = if task.index == selected {
             Style::default()
-                .fg(Color::Rgb(255, 105, 180))
+                .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD)
         } else if task.checked {
             Style::default().fg(Color::LightCyan)
