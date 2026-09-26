@@ -81,4 +81,4 @@ Normal text between a task and the next task or heading is associated with that 
 
 The TUI displays the completed count and a progress bar at the top. The selected task uses a bright blue-purple color, completed tasks use a muted color with a strikethrough on the title, and unchecked tasks use gray. Pressing `y` shows the copy result at the bottom. The detail panel shows the task status, heading hierarchy, language, command, and task-adjacent details.
 
-Pressing `r` never runs a command immediately. The TUI asks for confirmation; only `y` executes the selected command, while `n` or `Esc` cancels it. The TUI temporarily leaves the alternate screen so command output is visible, then returns to the runbook. Copying a command only writes it to the clipboard.
+Pressing `r` never runs a command immediately. The TUI shows a confirmation dialog; only `y` executes the selected command, while `n` or `Esc` cancels it. The command's stdout, stderr, and exit status are shown in a result dialog. Press `q` to return to the TUI. Copying a command only writes it to the clipboard.

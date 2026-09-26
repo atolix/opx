@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use crossterm::{
     event::{self, Event, KeyCode},
     execute,
@@ -6,19 +6,24 @@ use crossterm::{
 };
 use ratatui::{
     backend::CrosstermBackend,
-    layout::{Constraint, Direction, Layout},
+    layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Wrap},
+    widgets::{Block, Borders, Clear, Paragraph, Wrap},
     Terminal,
 };
 use std::{
     io::stdout,
     path::Path,
-    process::{Command, ExitStatus},
+    process::{Command, Output},
 };
 
 use crate::{document::Document, markdown};
+
+enum Overlay {
+    Confirm { command: String },
+    Result { success: bool, output: String },
+}
 
 pub fn run(path: &Path) -> Result<()> {
     let mut document = markdown::load(path)?;
@@ -37,7 +42,7 @@ fn app_loop(document: &mut Document, path: &Path) -> Result<()> {
     let mut selected = 0usize;
     let mut detail = false;
     let mut status_message = String::new();
-    let mut pending_execution = None;
+    let mut overlay = None;
     loop {
         terminal.draw(|frame| {
             draw(
@@ -46,7 +51,7 @@ fn app_loop(document: &mut Document, path: &Path) -> Result<()> {
                 selected,
                 detail,
                 &status_message,
-                pending_execution.is_some(),
+                overlay.as_ref(),
             )
         })?;
         if !event::poll(std::time::Duration::from_millis(250))? {
@@ -54,30 +59,41 @@ fn app_loop(document: &mut Document, path: &Path) -> Result<()> {
         }
         if let Event::Key(key) = event::read()? {
             status_message.clear();
-            if let Some(index) = pending_execution {
-                match key.code {
-                    KeyCode::Char('y') => {
-                        pending_execution = None;
-                        match execute_selected(&mut terminal, document, index) {
-                            Ok(status) if status.success() => {
-                                status_message = "Command finished successfully".into()
+            if let Some(current_overlay) = overlay.take() {
+                match (current_overlay, key.code) {
+                    (Overlay::Confirm { command }, KeyCode::Char('y')) => {
+                        match run_shell_command(&command) {
+                            Ok(output) => {
+                                let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
+                                let stderr = String::from_utf8_lossy(&output.stderr);
+                                if !stderr.is_empty() {
+                                    if !text.is_empty() {
+                                        text.push('\n');
+                                    }
+                                    text.push_str("stderr:\n");
+                                    text.push_str(&stderr);
+                                }
+                                if text.is_empty() {
+                                    text = "(no output)".into();
+                                }
+                                overlay = Some(Overlay::Result {
+                                    success: output.status.success(),
+                                    output: text,
+                                });
                             }
-                            Ok(status) => {
-                                status_message = format!(
-                                    "Command exited with status {}",
-                                    status
-                                        .code()
-                                        .map_or_else(|| "unknown".into(), |code| code.to_string())
-                                )
+                            Err(error) => {
+                                overlay = Some(Overlay::Result {
+                                    success: false,
+                                    output: error.to_string(),
+                                });
                             }
-                            Err(error) => status_message = format!("Command failed: {error}"),
                         }
                     }
-                    KeyCode::Char('n') | KeyCode::Esc => {
-                        pending_execution = None;
+                    (Overlay::Confirm { .. }, KeyCode::Char('n') | KeyCode::Esc) => {
                         status_message = "Command execution cancelled".into();
                     }
-                    _ => {}
+                    (Overlay::Result { .. }, KeyCode::Char('q')) => {}
+                    (other, _) => overlay = Some(other),
                 }
                 continue;
             }
@@ -113,8 +129,11 @@ fn app_loop(document: &mut Document, path: &Path) -> Result<()> {
                         .and_then(|task| task.command.as_ref())
                         .is_some()
                     {
-                        pending_execution = Some(selected);
-                        status_message = "Run command? Press y to execute, n to cancel".into();
+                        let command = document.tasks[selected]
+                            .command
+                            .clone()
+                            .expect("command presence checked above");
+                        overlay = Some(Overlay::Confirm { command });
                     } else {
                         status_message = "Run skipped: selected task has no command".into();
                     }
@@ -139,34 +158,14 @@ fn copy_selected(document: &Document, selected: usize) -> Result<Option<String>>
     Ok(Some(task.title.clone()))
 }
 
-fn execute_selected(
-    terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
-    document: &Document,
-    selected: usize,
-) -> Result<ExitStatus> {
-    let command = document
-        .tasks
-        .get(selected)
-        .and_then(|task| task.command.as_deref())
-        .context("selected task has no associated code block")?;
-
-    disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-    let result = run_shell_command(command);
-    enable_raw_mode()?;
-    execute!(terminal.backend_mut(), EnterAlternateScreen)?;
-    terminal.clear()?;
-    result
-}
-
 #[cfg(unix)]
-fn run_shell_command(command: &str) -> Result<ExitStatus> {
-    Ok(Command::new("sh").arg("-c").arg(command).status()?)
+fn run_shell_command(command: &str) -> Result<Output> {
+    Ok(Command::new("sh").arg("-c").arg(command).output()?)
 }
 
 #[cfg(windows)]
-fn run_shell_command(command: &str) -> Result<ExitStatus> {
-    Ok(Command::new("cmd").args(["/C", command]).status()?)
+fn run_shell_command(command: &str) -> Result<Output> {
+    Ok(Command::new("cmd").args(["/C", command]).output()?)
 }
 
 fn draw(
@@ -175,7 +174,7 @@ fn draw(
     selected: usize,
     detail: bool,
     status_message: &str,
-    pending_execution: bool,
+    overlay: Option<&Overlay>,
 ) {
     let area = frame.area();
     let chunks = Layout::default()
@@ -233,12 +232,78 @@ fn draw(
 
     let footer = if status_message.is_empty() {
         "j/k move   space/x toggle   y copy   r run   enter detail   n next   q quit".to_string()
-    } else if pending_execution {
-        format!("{status_message}")
     } else {
         format!("{status_message}   |   j/k move   space/x toggle   r run   q quit")
     };
     frame.render_widget(Paragraph::new(footer), chunks[2]);
+    if let Some(overlay) = overlay {
+        draw_overlay(frame, overlay);
+    }
+}
+
+fn draw_overlay(frame: &mut ratatui::Frame, overlay: &Overlay) {
+    let area = centered_rect(72, 60, frame.area());
+    frame.render_widget(Clear, area);
+    let (title, lines, color) = match overlay {
+        Overlay::Confirm { command } => (
+            "Confirm command",
+            vec![
+                Line::from("Run this command?"),
+                Line::from(""),
+                Line::from(command.clone()),
+                Line::from(""),
+                Line::from("y execute   n / Esc cancel"),
+            ],
+            Color::Yellow,
+        ),
+        Overlay::Result { success, output } => (
+            if *success {
+                "Command result: success"
+            } else {
+                "Command result: failed"
+            },
+            output
+                .lines()
+                .map(|line| Line::from(line.to_owned()))
+                .collect(),
+            if *success { Color::Green } else { Color::Red },
+        ),
+    };
+    let mut lines = lines;
+    if matches!(overlay, Overlay::Result { .. }) {
+        lines.push(Line::from(""));
+        lines.push(Line::from("Press q to return to the TUI"));
+    }
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(color))
+                    .title(title),
+            )
+            .wrap(Wrap { trim: false }),
+        area,
+    );
+}
+
+fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
+    let vertical = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Percentage(percent_y),
+            Constraint::Percentage((100 - percent_y) / 2),
+        ])
+        .split(area);
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((100 - percent_x) / 2),
+        ])
+        .split(vertical[1])[1]
 }
 
 fn runbook_block() -> Block<'static> {
