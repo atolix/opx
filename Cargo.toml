@@ -1,0 +1,18 @@
+[package]
+name = "opx"
+version = "0.1.0"
+edition = "2021"
+description = "A terminal runbook and checklist for Markdown files"
+license = "MIT"
+
+[dependencies]
+anyhow = "1"
+arboard = "3"
+clap = { version = "4", features = ["derive"] }
+crossterm = "0.28"
+ratatui = "0.29"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+pretty_assertions = "1"
