@@ -292,7 +292,7 @@ fn draw_overlay(frame: &mut ratatui::Frame, overlay: &Overlay) {
     frame.render_widget(
         Paragraph::new(match overlay {
             Overlay::Confirm { .. } => "y execute   n / q / Esc cancel",
-            Overlay::Result { .. } => "q return to TUI",
+            Overlay::Result { .. } => "q return",
         })
         .alignment(Alignment::Center),
         chunks[2],
