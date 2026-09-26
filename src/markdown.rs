@@ -48,27 +48,7 @@ pub fn parse(source: &str) -> Result<Document> {
         }
         if !in_fence {
             if let Some((marker_offset, checked, title)) = parse_task(content, offset) {
-                let mut language = None;
-                let mut command = None;
-                let details = parse_task_details(&lines, line_number + 1);
-                let mut lookahead = line_number + 1;
-                while lookahead < lines.len() && lines[lookahead].trim().is_empty() {
-                    lookahead += 1;
-                }
-                if lookahead < lines.len() {
-                    if let Some(fence_language) = opening_fence(lines[lookahead].trim()) {
-                        let mut code = Vec::new();
-                        let mut end = lookahead + 1;
-                        while end < lines.len() && !is_closing_fence(lines[end].trim()) {
-                            code.push(lines[end].trim_end_matches(['\r', '\n']));
-                            end += 1;
-                        }
-                        if end < lines.len() {
-                            language = Some(fence_language);
-                            command = Some(code.join("\n"));
-                        }
-                    }
-                }
+                let context = parse_task_context(&lines, line_number + 1);
                 tasks.push(Task {
                     index,
                     section: headings
@@ -77,9 +57,9 @@ pub fn parse(source: &str) -> Result<Document> {
                         .unwrap_or_default(),
                     title,
                     checked,
-                    language,
-                    command,
-                    details,
+                    language: context.language,
+                    command: context.command,
+                    details: context.details,
                     section_path: headings.iter().map(|(_, title)| title.clone()).collect(),
                     section_level: headings.last().map(|(level, _)| *level).unwrap_or(0),
                     marker_offset,
@@ -148,22 +128,46 @@ fn is_fence_line(line: &str) -> bool {
     line == "```" || (line.starts_with("```") && !line[3..].contains('`'))
 }
 
-fn parse_task_details(lines: &[&str], start: usize) -> Option<String> {
+struct TaskContext {
+    language: Option<String>,
+    command: Option<String>,
+    details: Option<String>,
+}
+
+fn parse_task_context(lines: &[&str], start: usize) -> TaskContext {
     let mut line_number = start;
     while line_number < lines.len() && lines[line_number].trim().is_empty() {
         line_number += 1;
     }
 
+    let mut language = None;
+    let mut command = None;
     let mut details = Vec::new();
     let mut in_fence = false;
+    let mut first_content = true;
     while line_number < lines.len() {
         let content = lines[line_number].trim_end_matches(['\r', '\n']);
         if !in_fence && (parse_heading(content).is_some() || parse_task(content, 0).is_some()) {
             break;
         }
         if !in_fence && opening_fence(content.trim()).is_some() {
+            let fence_language = opening_fence(content.trim()).unwrap_or_default();
             in_fence = true;
+            let mut code = Vec::new();
             line_number += 1;
+            while line_number < lines.len() && !is_closing_fence(lines[line_number].trim()) {
+                code.push(lines[line_number].trim_end_matches(['\r', '\n']));
+                line_number += 1;
+            }
+            if line_number < lines.len() {
+                if first_content && language.is_none() {
+                    language = Some(fence_language);
+                    command = Some(code.join("\n"));
+                }
+                in_fence = false;
+                line_number += 1;
+            }
+            first_content = false;
             continue;
         }
         if in_fence {
@@ -175,10 +179,15 @@ fn parse_task_details(lines: &[&str], start: usize) -> Option<String> {
         }
         if !content.trim().is_empty() {
             details.push(content.trim().to_owned());
+            first_content = false;
         }
         line_number += 1;
     }
-    (!details.is_empty()).then(|| details.join("\n"))
+    TaskContext {
+        language,
+        command,
+        details: (!details.is_empty()).then(|| details.join("\n")),
+    }
 }
 
 #[cfg(test)]
