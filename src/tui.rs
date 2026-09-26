@@ -6,7 +6,7 @@ use crossterm::{
 };
 use ratatui::{
     backend::CrosstermBackend,
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
@@ -244,7 +244,7 @@ fn draw(
 fn draw_overlay(frame: &mut ratatui::Frame, overlay: &Overlay) {
     let area = centered_rect(72, 60, frame.area());
     frame.render_widget(Clear, area);
-    let (title, lines, color) = match overlay {
+    let (title, lines) = match overlay {
         Overlay::Confirm { command } => (
             "Confirm command",
             vec![
@@ -254,7 +254,6 @@ fn draw_overlay(frame: &mut ratatui::Frame, overlay: &Overlay) {
                 Line::from(""),
                 Line::from("y execute   n / Esc cancel"),
             ],
-            Color::Yellow,
         ),
         Overlay::Result { success, output } => (
             if *success {
@@ -266,7 +265,6 @@ fn draw_overlay(frame: &mut ratatui::Frame, overlay: &Overlay) {
                 .lines()
                 .map(|line| Line::from(line.to_owned()))
                 .collect(),
-            if *success { Color::Green } else { Color::Red },
         ),
     };
     let mut lines = lines;
@@ -276,10 +274,11 @@ fn draw_overlay(frame: &mut ratatui::Frame, overlay: &Overlay) {
     }
     frame.render_widget(
         Paragraph::new(lines)
+            .alignment(Alignment::Center)
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(color))
+                    .border_style(Style::default().fg(Color::Red))
                     .title(title),
             )
             .wrap(Wrap { trim: false }),
