@@ -22,7 +22,7 @@ use crate::{document::Document, markdown};
 
 enum Overlay {
     Confirm { command: String },
-    Result { success: bool, output: String },
+    Result { output: String },
 }
 
 pub fn run(path: &Path) -> Result<()> {
@@ -86,14 +86,16 @@ fn app_loop(document: &mut Document, path: &Path) -> Result<()> {
                                 if text.is_empty() {
                                     text = "(no output)".into();
                                 }
+                                let status = output
+                                    .status
+                                    .code()
+                                    .map_or_else(|| "unknown".to_string(), |code| code.to_string());
                                 overlay = Some(Overlay::Result {
-                                    success: output.status.success(),
-                                    output: text,
+                                    output: format!("exit status: {status}\n\n{text}"),
                                 });
                             }
                             Err(error) => {
                                 overlay = Some(Overlay::Result {
-                                    success: false,
                                     output: error.to_string(),
                                 });
                             }
@@ -257,20 +259,9 @@ fn draw(
 fn draw_overlay(frame: &mut ratatui::Frame, overlay: &Overlay) {
     let area = centered_rect(64, 45, frame.area());
     frame.render_widget(Clear, area);
-    let title = match overlay {
-        Overlay::Confirm { .. } => "Confirm command",
-        Overlay::Result { success, .. } => {
-            if *success {
-                "Command result: success"
-            } else {
-                "Command result: failed"
-            }
-        }
-    };
     let outer = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Red))
-        .title(title);
+        .border_style(Style::default().fg(Color::Red));
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
 
@@ -284,7 +275,7 @@ fn draw_overlay(frame: &mut ratatui::Frame, overlay: &Overlay) {
         .split(inner);
     let (message, code) = match overlay {
         Overlay::Confirm { command } => ("Run this command?", command.as_str()),
-        Overlay::Result { output, .. } => ("Command output", output.as_str()),
+        Overlay::Result { output } => ("", output.as_str()),
     };
     frame.render_widget(
         Paragraph::new(message)
@@ -294,7 +285,7 @@ fn draw_overlay(frame: &mut ratatui::Frame, overlay: &Overlay) {
     );
     frame.render_widget(
         Paragraph::new(code)
-            .block(Block::default().borders(Borders::ALL).title("Code block"))
+            .block(Block::default().borders(Borders::ALL))
             .wrap(Wrap { trim: false }),
         chunks[1],
     );
