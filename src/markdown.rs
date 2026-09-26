@@ -1,5 +1,7 @@
 use anyhow::{Context, Result};
-use std::{fs, path::Path};
+use std::{fs, io::Write, path::Path};
+
+use tempfile::NamedTempFile;
 
 use crate::document::{Document, Task};
 
@@ -10,7 +12,21 @@ pub fn load(path: &Path) -> Result<Document> {
 }
 
 pub fn save(path: &Path, document: &Document) -> Result<()> {
-    fs::write(path, &document.source).with_context(|| format!("failed to write {}", path.display()))
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let mut temporary = NamedTempFile::new_in(parent)
+        .with_context(|| format!("failed to create temporary file near {}", path.display()))?;
+    temporary
+        .write_all(document.source.as_bytes())
+        .with_context(|| format!("failed to write {}", path.display()))?;
+    temporary
+        .as_file()
+        .sync_all()
+        .with_context(|| format!("failed to flush {}", path.display()))?;
+    temporary
+        .persist(path)
+        .map_err(|error| error.error)
+        .with_context(|| format!("failed to replace {}", path.display()))
+        .map(|_| ())
 }
 
 pub fn parse(source: &str) -> Result<Document> {
@@ -220,7 +236,7 @@ mod tests {
             "x",
         );
         assert_eq!(changed.source, expected);
-        assert_eq!(changed.tasks[0].checked, true);
+        assert!(changed.tasks[0].checked);
     }
 
     #[test]

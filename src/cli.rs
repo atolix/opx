@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::{markdown, tui};
 
@@ -121,7 +121,7 @@ fn run_cli(command: CliCommand) -> Result<()> {
     }
 }
 
-fn set_checked(file: &PathBuf, index: usize, checked: bool, json: bool) -> Result<()> {
+fn set_checked(file: &Path, index: usize, checked: bool, json: bool) -> Result<()> {
     let document = markdown::load(file)?;
     let updated = document.with_checked(index, checked)?;
     markdown::save(file, &updated)?;
