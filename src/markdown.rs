@@ -20,43 +20,51 @@ pub fn parse(source: &str) -> Result<Document> {
     let mut offset = 0;
     let mut index = 0;
     let mut line_number = 0;
+    let mut in_fence = false;
     while line_number < lines.len() {
         let line = lines[line_number];
         let content = line.trim_end_matches(['\r', '\n']);
-        if let Some(heading) = parse_heading(content) {
-            section = Some(heading);
-        }
-        if let Some((marker_offset, checked, title)) = parse_task(content, offset) {
-            let mut language = None;
-            let mut command = None;
-            let mut lookahead = line_number + 1;
-            while lookahead < lines.len() && lines[lookahead].trim().is_empty() {
-                lookahead += 1;
+        if !in_fence {
+            if let Some(heading) = parse_heading(content) {
+                section = Some(heading);
             }
-            if lookahead < lines.len() {
-                if let Some(fence_language) = opening_fence(lines[lookahead].trim()) {
-                    let mut code = Vec::new();
-                    let mut end = lookahead + 1;
-                    while end < lines.len() && !is_closing_fence(lines[end].trim()) {
-                        code.push(lines[end].trim_end_matches(['\r', '\n']));
-                        end += 1;
-                    }
-                    if end < lines.len() {
-                        language = Some(fence_language);
-                        command = Some(code.join("\n"));
+        }
+        if !in_fence {
+            if let Some((marker_offset, checked, title)) = parse_task(content, offset) {
+                let mut language = None;
+                let mut command = None;
+                let mut lookahead = line_number + 1;
+                while lookahead < lines.len() && lines[lookahead].trim().is_empty() {
+                    lookahead += 1;
+                }
+                if lookahead < lines.len() {
+                    if let Some(fence_language) = opening_fence(lines[lookahead].trim()) {
+                        let mut code = Vec::new();
+                        let mut end = lookahead + 1;
+                        while end < lines.len() && !is_closing_fence(lines[end].trim()) {
+                            code.push(lines[end].trim_end_matches(['\r', '\n']));
+                            end += 1;
+                        }
+                        if end < lines.len() {
+                            language = Some(fence_language);
+                            command = Some(code.join("\n"));
+                        }
                     }
                 }
+                tasks.push(Task {
+                    index,
+                    section: section.clone().unwrap_or_default(),
+                    title,
+                    checked,
+                    language,
+                    command,
+                    marker_offset,
+                });
+                index += 1;
             }
-            tasks.push(Task {
-                index,
-                section: section.clone().unwrap_or_default(),
-                title,
-                checked,
-                language,
-                command,
-                marker_offset,
-            });
-            index += 1;
+        }
+        if is_fence_line(content) {
+            in_fence = !in_fence;
         }
         offset += line.len();
         line_number += 1;
@@ -111,6 +119,10 @@ fn is_closing_fence(line: &str) -> bool {
     line == "```"
 }
 
+fn is_fence_line(line: &str) -> bool {
+    line == "```" || (line.starts_with("```") && !line[3..].contains('`'))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -150,5 +162,12 @@ mod tests {
         let document = parse("- [X] done\n- [ ] todo\n").unwrap();
         assert!(document.tasks[0].checked);
         assert!(!document.tasks[1].checked);
+    }
+
+    #[test]
+    fn ignores_task_like_text_inside_fences() {
+        let document = parse("```md\n- [ ] example\n```\n\n- [ ] real\n").unwrap();
+        assert_eq!(document.tasks.len(), 1);
+        assert_eq!(document.tasks[0].title, "real");
     }
 }
