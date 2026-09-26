@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use crossterm::{
     event::{self, Event, KeyCode},
     execute,
@@ -12,7 +12,11 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, Wrap},
     Terminal,
 };
-use std::{io::stdout, path::Path};
+use std::{
+    io::stdout,
+    path::Path,
+    process::{Command, ExitStatus},
+};
 
 use crate::{document::Document, markdown};
 
@@ -33,13 +37,50 @@ fn app_loop(document: &mut Document, path: &Path) -> Result<()> {
     let mut selected = 0usize;
     let mut detail = false;
     let mut status_message = String::new();
+    let mut pending_execution = None;
     loop {
-        terminal.draw(|frame| draw(frame, document, selected, detail, &status_message))?;
+        terminal.draw(|frame| {
+            draw(
+                frame,
+                document,
+                selected,
+                detail,
+                &status_message,
+                pending_execution.is_some(),
+            )
+        })?;
         if !event::poll(std::time::Duration::from_millis(250))? {
             continue;
         }
         if let Event::Key(key) = event::read()? {
             status_message.clear();
+            if let Some(index) = pending_execution {
+                match key.code {
+                    KeyCode::Char('y') => {
+                        pending_execution = None;
+                        match execute_selected(&mut terminal, document, index) {
+                            Ok(status) if status.success() => {
+                                status_message = "Command finished successfully".into()
+                            }
+                            Ok(status) => {
+                                status_message = format!(
+                                    "Command exited with status {}",
+                                    status
+                                        .code()
+                                        .map_or_else(|| "unknown".into(), |code| code.to_string())
+                                )
+                            }
+                            Err(error) => status_message = format!("Command failed: {error}"),
+                        }
+                    }
+                    KeyCode::Char('n') | KeyCode::Esc => {
+                        pending_execution = None;
+                        status_message = "Command execution cancelled".into();
+                    }
+                    _ => {}
+                }
+                continue;
+            }
             match key.code {
                 KeyCode::Char('q') => break,
                 KeyCode::Down | KeyCode::Char('j') => {
@@ -65,6 +106,19 @@ fn app_loop(document: &mut Document, path: &Path) -> Result<()> {
                     }
                     Err(error) => status_message = format!("Copy failed: {error}"),
                 },
+                KeyCode::Char('r') => {
+                    if document
+                        .tasks
+                        .get(selected)
+                        .and_then(|task| task.command.as_ref())
+                        .is_some()
+                    {
+                        pending_execution = Some(selected);
+                        status_message = "Run command? Press y to execute, n to cancel".into();
+                    } else {
+                        status_message = "Run skipped: selected task has no command".into();
+                    }
+                }
                 KeyCode::Enter => detail = !detail,
                 _ => {}
             }
@@ -85,12 +139,43 @@ fn copy_selected(document: &Document, selected: usize) -> Result<Option<String>>
     Ok(Some(task.title.clone()))
 }
 
+fn execute_selected(
+    terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
+    document: &Document,
+    selected: usize,
+) -> Result<ExitStatus> {
+    let command = document
+        .tasks
+        .get(selected)
+        .and_then(|task| task.command.as_deref())
+        .context("selected task has no associated code block")?;
+
+    disable_raw_mode()?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    let result = run_shell_command(command);
+    enable_raw_mode()?;
+    execute!(terminal.backend_mut(), EnterAlternateScreen)?;
+    terminal.clear()?;
+    result
+}
+
+#[cfg(unix)]
+fn run_shell_command(command: &str) -> Result<ExitStatus> {
+    Ok(Command::new("sh").arg("-c").arg(command).status()?)
+}
+
+#[cfg(windows)]
+fn run_shell_command(command: &str) -> Result<ExitStatus> {
+    Ok(Command::new("cmd").args(["/C", command]).status()?)
+}
+
 fn draw(
     frame: &mut ratatui::Frame,
     document: &Document,
     selected: usize,
     detail: bool,
     status_message: &str,
+    pending_execution: bool,
 ) {
     let area = frame.area();
     let chunks = Layout::default()
@@ -147,9 +232,11 @@ fn draw(
     }
 
     let footer = if status_message.is_empty() {
-        "j/k or arrows move   space toggle   y copy   enter detail   n next   q quit".to_string()
+        "j/k move   space/x toggle   y copy   r run   enter detail   n next   q quit".to_string()
+    } else if pending_execution {
+        format!("{status_message}")
     } else {
-        format!("{status_message}   |   j/k move   space toggle   enter detail   q quit")
+        format!("{status_message}   |   j/k move   space/x toggle   r run   q quit")
     };
     frame.render_widget(Paragraph::new(footer), chunks[2]);
 }

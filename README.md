@@ -74,10 +74,11 @@ Normal text between a task and the next task or heading is associated with that 
 | `k` / `Up` | Move to the previous task |
 | `Space` / `x` | Toggle checked / unchecked and save immediately |
 | `y` | Copy the associated command to the clipboard |
+| `r` | Ask for confirmation before running the associated command |
 | `Enter` | Open or close the right-side detail panel |
 | `n` | Move to the next unchecked task |
 | `q` | Quit |
 
 The TUI displays the completed count and a progress bar at the top. The selected task uses a bright blue-purple color, completed tasks use a muted color with a strikethrough on the title, and unchecked tasks use gray. Pressing `y` shows the copy result at the bottom. The detail panel shows the task status, heading hierarchy, language, command, and task-adjacent details.
 
-Commands in code blocks are never executed. Copying a command only writes it to the clipboard.
+Pressing `r` never runs a command immediately. The TUI asks for confirmation; only `y` executes the selected command, while `n` or `Esc` cancels it. The TUI temporarily leaves the alternate screen so command output is visible, then returns to the runbook. Copying a command only writes it to the clipboard.
