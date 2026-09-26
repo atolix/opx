@@ -34,6 +34,7 @@ pub fn parse(source: &str) -> Result<Document> {
             if let Some((marker_offset, checked, title)) = parse_task(content, offset) {
                 let mut language = None;
                 let mut command = None;
+                let details = parse_task_details(&lines, line_number + 1);
                 let mut lookahead = line_number + 1;
                 while lookahead < lines.len() && lines[lookahead].trim().is_empty() {
                     lookahead += 1;
@@ -62,6 +63,7 @@ pub fn parse(source: &str) -> Result<Document> {
                     checked,
                     language,
                     command,
+                    details,
                     section_path: headings.iter().map(|(_, title)| title.clone()).collect(),
                     section_level: headings.last().map(|(level, _)| *level).unwrap_or(0),
                     marker_offset,
@@ -130,6 +132,39 @@ fn is_fence_line(line: &str) -> bool {
     line == "```" || (line.starts_with("```") && !line[3..].contains('`'))
 }
 
+fn parse_task_details(lines: &[&str], start: usize) -> Option<String> {
+    let mut line_number = start;
+    while line_number < lines.len() && lines[line_number].trim().is_empty() {
+        line_number += 1;
+    }
+
+    let mut details = Vec::new();
+    let mut in_fence = false;
+    while line_number < lines.len() {
+        let content = lines[line_number].trim_end_matches(['\r', '\n']);
+        if !in_fence && (parse_heading(content).is_some() || parse_task(content, 0).is_some()) {
+            break;
+        }
+        if !in_fence && opening_fence(content.trim()).is_some() {
+            in_fence = true;
+            line_number += 1;
+            continue;
+        }
+        if in_fence {
+            if is_closing_fence(content.trim()) {
+                in_fence = false;
+            }
+            line_number += 1;
+            continue;
+        }
+        if !content.trim().is_empty() {
+            details.push(content.trim().to_owned());
+        }
+        line_number += 1;
+    }
+    (!details.is_empty()).then(|| details.join("\n"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -149,6 +184,19 @@ mod tests {
         );
         assert!(document.tasks[1].checked);
         assert_eq!(document.tasks[2].section, "Database");
+    }
+
+    #[test]
+    fn associates_text_after_task_as_details() {
+        let document = parse(
+            "## Deploy\n\n- [ ] deployする\n\n本番環境では承認後に実行します。\n\n- [ ] 確認する\n",
+        )
+        .unwrap();
+        assert_eq!(
+            document.tasks[0].details.as_deref(),
+            Some("本番環境では承認後に実行します。")
+        );
+        assert_eq!(document.tasks[1].details, None);
     }
 
     #[test]

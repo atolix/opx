@@ -57,6 +57,8 @@ JSONの例:
 
 `status --json` は `total`、`completed`、`progress`、`tasks` を返します。多層headingの場合、taskには最も近いheadingが `section` として入り、上位からの階層が `section_path` に入ります。
 
+task直下から次のtaskまたはheadingまでにある通常本文は、そのtaskの `details` として扱われます。TUIの右側detail panelとJSONで確認できます。task直後のfenced code blockは `details` ではなく関連commandとして扱います。
+
 ## TUIキーバインド
 
 | キー | 操作 |

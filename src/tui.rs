@@ -215,6 +215,16 @@ fn detail_lines(document: &Document, selected: usize) -> Vec<Line<'static>> {
     if let Some(language) = &task.language {
         lines.push(Line::from(format!("Language: {language}")));
     }
+    if let Some(details) = &task.details {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "Details",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )));
+        lines.extend(details.lines().map(|line| Line::from(format!("  {line}"))));
+    }
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
         "Command",
