@@ -1,6 +1,6 @@
 # opx
 
-A terminal runbook/checklist CLI that treats Markdown as the source of truth. Checked state is saved directly in Markdown task markers (`[ ]` / `[x]`). No separate database or state file is created.
+`opx` is a terminal UI for working through Markdown runbooks. It provides task navigation, progress tracking, detail views, clipboard copying, and explicitly confirmed command execution.
 
 ## Installation
 
@@ -9,6 +9,8 @@ Install Rust stable, then run this from the repository root:
 ```sh
 cargo install --path .
 ```
+
+The Markdown file remains the canonical source of task state. `opx` updates its task markers directly and does not create a separate database or state file.
 
 ## Markdown example
 
