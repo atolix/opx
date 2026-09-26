@@ -15,7 +15,7 @@ pub fn save(path: &Path, document: &Document) -> Result<()> {
 
 pub fn parse(source: &str) -> Result<Document> {
     let mut tasks = Vec::new();
-    let mut section: Option<String> = None;
+    let mut headings: Vec<(usize, String)> = Vec::new();
     let lines = source.split_inclusive('\n').collect::<Vec<_>>();
     let mut offset = 0;
     let mut index = 0;
@@ -25,8 +25,9 @@ pub fn parse(source: &str) -> Result<Document> {
         let line = lines[line_number];
         let content = line.trim_end_matches(['\r', '\n']);
         if !in_fence {
-            if let Some(heading) = parse_heading(content) {
-                section = Some(heading);
+            if let Some((level, heading)) = parse_heading(content) {
+                headings.retain(|(heading_level, _)| *heading_level < level);
+                headings.push((level, heading));
             }
         }
         if !in_fence {
@@ -53,11 +54,16 @@ pub fn parse(source: &str) -> Result<Document> {
                 }
                 tasks.push(Task {
                     index,
-                    section: section.clone().unwrap_or_default(),
+                    section: headings
+                        .last()
+                        .map(|(_, title)| title.clone())
+                        .unwrap_or_default(),
                     title,
                     checked,
                     language,
                     command,
+                    section_path: headings.iter().map(|(_, title)| title.clone()).collect(),
+                    section_level: headings.last().map(|(level, _)| *level).unwrap_or(0),
                     marker_offset,
                 });
                 index += 1;
@@ -75,16 +81,17 @@ pub fn parse(source: &str) -> Result<Document> {
     })
 }
 
-fn parse_heading(line: &str) -> Option<String> {
+fn parse_heading(line: &str) -> Option<(usize, String)> {
     let trimmed = line.trim_start();
     let hashes = trimmed.chars().take_while(|c| *c == '#').count();
     if (1..=6).contains(&hashes) && trimmed.chars().nth(hashes) == Some(' ') {
-        Some(
+        Some((
+            hashes,
             trimmed[hashes + 1..]
                 .trim_end_matches('#')
                 .trim()
                 .to_owned(),
-        )
+        ))
     } else {
         None
     }
@@ -142,6 +149,17 @@ mod tests {
         );
         assert!(document.tasks[1].checked);
         assert_eq!(document.tasks[2].section, "Database");
+    }
+
+    #[test]
+    fn keeps_heading_hierarchy_for_nested_sections() {
+        let document = parse("# Deploy\n## Production\n### Rollout\n- [ ] check\n").unwrap();
+        assert_eq!(document.tasks[0].section, "Rollout");
+        assert_eq!(document.tasks[0].section_level, 3);
+        assert_eq!(
+            document.tasks[0].section_path,
+            ["Deploy", "Production", "Rollout"]
+        );
     }
 
     #[test]

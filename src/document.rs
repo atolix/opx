@@ -9,6 +9,10 @@ pub struct Task {
     pub language: Option<String>,
     pub command: Option<String>,
     #[serde(skip)]
+    pub section_path: Vec<String>,
+    #[serde(skip)]
+    pub section_level: usize,
+    #[serde(skip)]
     pub marker_offset: usize,
 }
 
