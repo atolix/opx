@@ -171,7 +171,7 @@ fn task_lines(document: &Document, selected: usize) -> Vec<Line<'static>> {
 
         let selected_style = if task.index == selected {
             Style::default()
-                .fg(Color::Yellow)
+                .fg(Color::Magenta)
                 .add_modifier(Modifier::BOLD)
         } else if task.checked {
             Style::default().fg(Color::LightCyan)
