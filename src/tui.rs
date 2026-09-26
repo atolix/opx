@@ -114,7 +114,7 @@ fn draw(
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(
             progress_bar,
-            Style::default().fg(Color::LightCyan),
+            Style::default().fg(Color::Rgb(170, 150, 255)),
         )))
         .block(Block::default().borders(Borders::ALL).title(format!(
             "opx  Progress {} / {}",
