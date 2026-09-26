@@ -77,8 +77,8 @@ Normal text between a task and the next task or heading is associated with that 
 | `r` | Ask for confirmation before running the associated command |
 | `Enter` | Open or close the right-side detail panel |
 | `n` | Move to the next unchecked task |
-| `q` | Quit |
+| `q` / `Ctrl+C` | Quit or close the current dialog |
 
 The TUI displays the completed count and a progress bar at the top. The selected task uses a bright blue-purple color, completed tasks use a muted color with a strikethrough on the title, and unchecked tasks use gray. Pressing `y` shows the copy result at the bottom. The detail panel shows the task status, heading hierarchy, language, command, and task-adjacent details.
 
-Pressing `r` never runs a command immediately. The TUI shows a confirmation dialog; only `y` executes the selected command, while `n` or `Esc` cancels it. The command's stdout, stderr, and exit status are shown in a result dialog. Press `q` to return to the TUI. Copying a command only writes it to the clipboard.
+Pressing `r` never runs a command immediately. The TUI shows a confirmation dialog with the command in a code block; only `y` executes the selected command, while `n`, `q`, or `Esc` cancels it. The command's stdout, stderr, and exit status are shown in a result dialog. Press `q` or `Ctrl+C` to return to the TUI, or to quit when no dialog is open. Copying a command only writes it to the clipboard.

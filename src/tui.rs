@@ -1,6 +1,6 @@
 use anyhow::Result;
 use crossterm::{
-    event::{self, Event, KeyCode},
+    event::{self, Event, KeyCode, KeyModifiers},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -59,6 +59,16 @@ fn app_loop(document: &mut Document, path: &Path) -> Result<()> {
         }
         if let Event::Key(key) = event::read()? {
             status_message.clear();
+            let ctrl_c =
+                key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL);
+            if ctrl_c {
+                if overlay.is_some() {
+                    overlay = None;
+                    status_message = "Dialog closed".into();
+                    continue;
+                }
+                break;
+            }
             if let Some(current_overlay) = overlay.take() {
                 match (current_overlay, key.code) {
                     (Overlay::Confirm { command }, KeyCode::Char('y')) => {
@@ -89,7 +99,10 @@ fn app_loop(document: &mut Document, path: &Path) -> Result<()> {
                             }
                         }
                     }
-                    (Overlay::Confirm { .. }, KeyCode::Char('n') | KeyCode::Esc) => {
+                    (
+                        Overlay::Confirm { .. },
+                        KeyCode::Char('n') | KeyCode::Char('q') | KeyCode::Esc,
+                    ) => {
                         status_message = "Command execution cancelled".into();
                     }
                     (Overlay::Result { .. }, KeyCode::Char('q')) => {}
@@ -242,47 +255,56 @@ fn draw(
 }
 
 fn draw_overlay(frame: &mut ratatui::Frame, overlay: &Overlay) {
-    let area = centered_rect(72, 60, frame.area());
+    let area = centered_rect(64, 45, frame.area());
     frame.render_widget(Clear, area);
-    let (title, lines) = match overlay {
-        Overlay::Confirm { command } => (
-            "Confirm command",
-            vec![
-                Line::from("Run this command?"),
-                Line::from(""),
-                Line::from(command.clone()),
-                Line::from(""),
-                Line::from("y execute   n / Esc cancel"),
-            ],
-        ),
-        Overlay::Result { success, output } => (
+    let title = match overlay {
+        Overlay::Confirm { .. } => "Confirm command",
+        Overlay::Result { success, .. } => {
             if *success {
                 "Command result: success"
             } else {
                 "Command result: failed"
-            },
-            output
-                .lines()
-                .map(|line| Line::from(line.to_owned()))
-                .collect(),
-        ),
+            }
+        }
     };
-    let mut lines = lines;
-    if matches!(overlay, Overlay::Result { .. }) {
-        lines.push(Line::from(""));
-        lines.push(Line::from("Press q to return to the TUI"));
-    }
+    let outer = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Red))
+        .title(title);
+    let inner = outer.inner(area);
+    frame.render_widget(outer, area);
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(2),
+            Constraint::Min(5),
+            Constraint::Length(1),
+        ])
+        .split(inner);
+    let (message, code) = match overlay {
+        Overlay::Confirm { command } => ("Run this command?", command.as_str()),
+        Overlay::Result { output, .. } => ("Command output", output.as_str()),
+    };
     frame.render_widget(
-        Paragraph::new(lines)
+        Paragraph::new(message)
             .alignment(Alignment::Center)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Red))
-                    .title(title),
-            )
             .wrap(Wrap { trim: false }),
-        area,
+        chunks[0],
+    );
+    frame.render_widget(
+        Paragraph::new(code)
+            .block(Block::default().borders(Borders::ALL).title("Code block"))
+            .wrap(Wrap { trim: false }),
+        chunks[1],
+    );
+    frame.render_widget(
+        Paragraph::new(match overlay {
+            Overlay::Confirm { .. } => "y execute   n / q / Esc cancel",
+            Overlay::Result { .. } => "q return to TUI",
+        })
+        .alignment(Alignment::Center),
+        chunks[2],
     );
 }
 
