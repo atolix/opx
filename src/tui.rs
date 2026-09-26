@@ -282,7 +282,7 @@ fn draw(frame: &mut ratatui::Frame, document: &Document, state: &AppState) {
 }
 
 fn draw_overlay(frame: &mut ratatui::Frame, overlay: &Overlay) {
-    let area = centered_rect(64, 45, frame.area());
+    let area = centered_rect(56, 45, frame.area());
     frame.render_widget(Clear, area);
     let outer = Block::default()
         .borders(Borders::ALL)
