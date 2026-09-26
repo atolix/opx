@@ -22,9 +22,9 @@ cargo test
 
 ## Database
 
-- [x] データベースのバックアップを確認する
+- [ ] データベースのバックアップを確認する
 
-- [x] migrationを実行する
+- [ ] migrationを実行する
 
 ```sh
 ./bin/migrate production
