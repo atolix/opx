@@ -9,7 +9,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Gauge, Paragraph, Wrap},
+    widgets::{Block, Borders, Paragraph, Wrap},
     Terminal,
 };
 use std::{io::stdout, path::Path};
@@ -103,16 +103,24 @@ fn draw(
         .split(area);
     let progress = document.progress();
     let progress_percent = (progress * 100.0).round().clamp(0.0, 100.0) as u16;
+    let bar_width = chunks[0].width.saturating_sub(7) as usize;
+    let filled_width = bar_width * progress_percent as usize / 100;
+    let progress_bar = format!(
+        "{}{} {:>3}%",
+        "█".repeat(filled_width),
+        "░".repeat(bar_width.saturating_sub(filled_width)),
+        progress_percent
+    );
     frame.render_widget(
-        Gauge::default()
-            .block(Block::default().borders(Borders::ALL).title(format!(
-                "opx  Progress {} / {}",
-                document.completed_count(),
-                document.tasks.len()
-            )))
-            .gauge_style(Style::default().fg(Color::LightCyan))
-            .label(format!("{progress_percent}%"))
-            .percent(progress_percent),
+        Paragraph::new(Line::from(Span::styled(
+            progress_bar,
+            Style::default().fg(Color::LightCyan),
+        )))
+        .block(Block::default().borders(Borders::ALL).title(format!(
+            "opx  Progress {} / {}",
+            document.completed_count(),
+            document.tasks.len()
+        ))),
         chunks[0],
     );
 
