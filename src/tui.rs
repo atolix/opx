@@ -1,6 +1,6 @@
 use anyhow::Result;
 use crossterm::{
-    event::{self, Event, KeyCode, KeyModifiers},
+    event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -22,7 +22,15 @@ use crate::{document::Document, markdown};
 
 enum Overlay {
     Confirm { command: String },
-    Result { output: String },
+    Result { output: String, scroll: u16 },
+}
+
+#[derive(Default)]
+struct AppState {
+    selected: usize,
+    detail: bool,
+    status_message: String,
+    overlay: Option<Overlay>,
 }
 
 pub fn run(path: &Path) -> Result<()> {
@@ -39,126 +47,147 @@ pub fn run(path: &Path) -> Result<()> {
 fn app_loop(document: &mut Document, path: &Path) -> Result<()> {
     let backend = CrosstermBackend::new(stdout());
     let mut terminal = Terminal::new(backend)?;
-    let mut selected = 0usize;
-    let mut detail = false;
-    let mut status_message = String::new();
-    let mut overlay = None;
+    let mut state = AppState::default();
     loop {
-        terminal.draw(|frame| {
-            draw(
-                frame,
-                document,
-                selected,
-                detail,
-                &status_message,
-                overlay.as_ref(),
-            )
-        })?;
+        terminal.draw(|frame| draw(frame, document, &state))?;
         if !event::poll(std::time::Duration::from_millis(250))? {
             continue;
         }
         if let Event::Key(key) = event::read()? {
-            status_message.clear();
-            let ctrl_c =
-                key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL);
-            if ctrl_c {
-                if overlay.is_some() {
-                    overlay = None;
-                    status_message = "Dialog closed".into();
-                    continue;
-                }
+            if handle_key(&mut state, document, path, key)? {
                 break;
-            }
-            if let Some(current_overlay) = overlay.take() {
-                match (current_overlay, key.code) {
-                    (Overlay::Confirm { command }, KeyCode::Char('y')) => {
-                        match run_shell_command(&command) {
-                            Ok(output) => {
-                                let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
-                                let stderr = String::from_utf8_lossy(&output.stderr);
-                                if !stderr.is_empty() {
-                                    if !text.is_empty() {
-                                        text.push('\n');
-                                    }
-                                    text.push_str("stderr:\n");
-                                    text.push_str(&stderr);
-                                }
-                                if text.is_empty() {
-                                    text = "(no output)".into();
-                                }
-                                let status = output
-                                    .status
-                                    .code()
-                                    .map_or_else(|| "unknown".to_string(), |code| code.to_string());
-                                overlay = Some(Overlay::Result {
-                                    output: format!("exit status: {status}\n\n{text}"),
-                                });
-                            }
-                            Err(error) => {
-                                overlay = Some(Overlay::Result {
-                                    output: error.to_string(),
-                                });
-                            }
-                        }
-                    }
-                    (
-                        Overlay::Confirm { .. },
-                        KeyCode::Char('n') | KeyCode::Char('q') | KeyCode::Esc,
-                    ) => {
-                        status_message = "Command execution cancelled".into();
-                    }
-                    (Overlay::Result { .. }, KeyCode::Char('q')) => {}
-                    (other, _) => overlay = Some(other),
-                }
-                continue;
-            }
-            match key.code {
-                KeyCode::Char('q') => break,
-                KeyCode::Down | KeyCode::Char('j') => {
-                    selected = (selected + 1).min(document.tasks.len().saturating_sub(1))
-                }
-                KeyCode::Up | KeyCode::Char('k') => selected = selected.saturating_sub(1),
-                KeyCode::Char('n') => {
-                    if let Some(task) = document.next_unchecked(Some(selected)) {
-                        selected = task.index;
-                    }
-                }
-                KeyCode::Char(' ') | KeyCode::Char('x') => {
-                    if let Some(task) = document.tasks.get(selected) {
-                        let updated = document.with_checked(selected, !task.checked)?;
-                        markdown::save(path, &updated)?;
-                        *document = updated;
-                    }
-                }
-                KeyCode::Char('y') => match copy_selected(document, selected) {
-                    Ok(Some(title)) => status_message = format!("Copied command: {title}"),
-                    Ok(None) => {
-                        status_message = "Copy skipped: selected task has no command".into()
-                    }
-                    Err(error) => status_message = format!("Copy failed: {error}"),
-                },
-                KeyCode::Char('r') => {
-                    if document
-                        .tasks
-                        .get(selected)
-                        .and_then(|task| task.command.as_ref())
-                        .is_some()
-                    {
-                        let command = document.tasks[selected]
-                            .command
-                            .clone()
-                            .expect("command presence checked above");
-                        overlay = Some(Overlay::Confirm { command });
-                    } else {
-                        status_message = "Run skipped: selected task has no command".into();
-                    }
-                }
-                KeyCode::Enter => detail = !detail,
-                _ => {}
             }
         }
     }
     Ok(())
+}
+
+fn handle_key(
+    state: &mut AppState,
+    document: &mut Document,
+    path: &Path,
+    key: KeyEvent,
+) -> Result<bool> {
+    state.status_message.clear();
+    let ctrl_c = key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL);
+    if ctrl_c {
+        if state.overlay.is_some() {
+            state.overlay = None;
+            state.status_message = "Dialog closed".into();
+            return Ok(false);
+        }
+        return Ok(true);
+    }
+
+    if let Some(current_overlay) = state.overlay.take() {
+        match (current_overlay, key.code) {
+            (Overlay::Confirm { command }, KeyCode::Char('y')) => {
+                state.overlay = Some(execute_overlay_command(&command));
+            }
+            (Overlay::Confirm { .. }, KeyCode::Char('n') | KeyCode::Char('q') | KeyCode::Esc) => {
+                state.status_message = "Command execution cancelled".into();
+            }
+            (Overlay::Result { .. }, KeyCode::Char('q')) => {}
+            (Overlay::Result { output, scroll }, KeyCode::Down | KeyCode::Char('j')) => {
+                state.overlay = Some(Overlay::Result {
+                    output,
+                    scroll: scroll.saturating_add(1),
+                });
+            }
+            (Overlay::Result { output, scroll }, KeyCode::Up | KeyCode::Char('k')) => {
+                state.overlay = Some(Overlay::Result {
+                    output,
+                    scroll: scroll.saturating_sub(1),
+                });
+            }
+            (other, _) => state.overlay = Some(other),
+        }
+        return Ok(false);
+    }
+
+    match key.code {
+        KeyCode::Char('q') => Ok(true),
+        KeyCode::Down | KeyCode::Char('j') => {
+            state.selected = (state.selected + 1).min(document.tasks.len().saturating_sub(1));
+            Ok(false)
+        }
+        KeyCode::Up | KeyCode::Char('k') => {
+            state.selected = state.selected.saturating_sub(1);
+            Ok(false)
+        }
+        KeyCode::Char('n') => {
+            if let Some(task) = document.next_unchecked(Some(state.selected)) {
+                state.selected = task.index;
+            }
+            Ok(false)
+        }
+        KeyCode::Char(' ') | KeyCode::Char('x') => {
+            if let Some(task) = document.tasks.get(state.selected) {
+                let updated = document.with_checked(state.selected, !task.checked)?;
+                markdown::save(path, &updated)?;
+                *document = updated;
+            }
+            Ok(false)
+        }
+        KeyCode::Char('y') => {
+            match copy_selected(document, state.selected) {
+                Ok(Some(title)) => state.status_message = format!("Copied command: {title}"),
+                Ok(None) => {
+                    state.status_message = "Copy skipped: selected task has no command".into()
+                }
+                Err(error) => state.status_message = format!("Copy failed: {error}"),
+            }
+            Ok(false)
+        }
+        KeyCode::Char('r') => {
+            if let Some(command) = document
+                .tasks
+                .get(state.selected)
+                .and_then(|task| task.command.clone())
+            {
+                state.overlay = Some(Overlay::Confirm { command });
+            } else {
+                state.status_message = "Run skipped: selected task has no command".into();
+            }
+            Ok(false)
+        }
+        KeyCode::Enter => {
+            state.detail = !state.detail;
+            Ok(false)
+        }
+        _ => Ok(false),
+    }
+}
+
+fn execute_overlay_command(command: &str) -> Overlay {
+    match run_shell_command(command) {
+        Ok(output) => {
+            let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if !stderr.is_empty() {
+                if !text.is_empty() {
+                    text.push('\n');
+                }
+                text.push_str("stderr:\n");
+                text.push_str(&stderr);
+            }
+            if text.is_empty() {
+                text = "(no output)".into();
+            }
+            let status = output
+                .status
+                .code()
+                .map_or_else(|| "unknown".to_string(), |code| code.to_string());
+            Overlay::Result {
+                output: format!("exit status: {status}\n\n{text}"),
+                scroll: 0,
+            }
+        }
+        Err(error) => Overlay::Result {
+            output: error.to_string(),
+            scroll: 0,
+        },
+    }
 }
 
 fn copy_selected(document: &Document, selected: usize) -> Result<Option<String>> {
@@ -183,14 +212,7 @@ fn run_shell_command(command: &str) -> Result<Output> {
     Ok(Command::new("cmd").args(["/C", command]).output()?)
 }
 
-fn draw(
-    frame: &mut ratatui::Frame,
-    document: &Document,
-    selected: usize,
-    detail: bool,
-    status_message: &str,
-    overlay: Option<&Overlay>,
-) {
+fn draw(frame: &mut ratatui::Frame, document: &Document, state: &AppState) {
     let area = frame.area();
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -223,35 +245,38 @@ fn draw(
         chunks[0],
     );
 
-    if detail {
+    if state.detail {
         let panes = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Percentage(64), Constraint::Percentage(36)])
             .split(chunks[1]);
         frame.render_widget(
-            Paragraph::new(task_lines(document, selected)).block(runbook_block()),
+            Paragraph::new(task_lines(document, state.selected)).block(runbook_block()),
             panes[0],
         );
         frame.render_widget(
-            Paragraph::new(detail_lines(document, selected))
+            Paragraph::new(detail_lines(document, state.selected))
                 .block(Block::default().borders(Borders::ALL).title("Detail"))
                 .wrap(Wrap { trim: false }),
             panes[1],
         );
     } else {
         frame.render_widget(
-            Paragraph::new(task_lines(document, selected)).block(runbook_block()),
+            Paragraph::new(task_lines(document, state.selected)).block(runbook_block()),
             chunks[1],
         );
     }
 
-    let footer = if status_message.is_empty() {
+    let footer = if state.status_message.is_empty() {
         "j/k move   space/x toggle   y copy   r run   enter detail   n next   q quit".to_string()
     } else {
-        format!("{status_message}   |   j/k move   space/x toggle   r run   q quit")
+        format!(
+            "{}   |   j/k move   space/x toggle   r run   q quit",
+            state.status_message
+        )
     };
     frame.render_widget(Paragraph::new(footer), chunks[2]);
-    if let Some(overlay) = overlay {
+    if let Some(overlay) = &state.overlay {
         draw_overlay(frame, overlay);
     }
 }
@@ -275,7 +300,7 @@ fn draw_overlay(frame: &mut ratatui::Frame, overlay: &Overlay) {
         .split(inner);
     let (message, code) = match overlay {
         Overlay::Confirm { command } => ("Run this command?", command.as_str()),
-        Overlay::Result { output } => ("", output.as_str()),
+        Overlay::Result { output, .. } => ("", output.as_str()),
     };
     frame.render_widget(
         Paragraph::new(message)
@@ -284,9 +309,15 @@ fn draw_overlay(frame: &mut ratatui::Frame, overlay: &Overlay) {
         chunks[0],
     );
     frame.render_widget(
-        Paragraph::new(code)
-            .block(Block::default().borders(Borders::ALL))
-            .wrap(Wrap { trim: false }),
+        {
+            let paragraph = Paragraph::new(code)
+                .block(Block::default().borders(Borders::ALL))
+                .wrap(Wrap { trim: false });
+            match overlay {
+                Overlay::Result { scroll, .. } => paragraph.scroll((*scroll, 0)),
+                Overlay::Confirm { .. } => paragraph,
+            }
+        },
         chunks[1],
     );
     frame.render_widget(
@@ -415,4 +446,83 @@ fn detail_lines(document: &Document, selected: usize) -> Vec<Line<'static>> {
         lines.push(Line::from("  (none)"));
     }
     lines
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossterm::event::KeyEvent;
+
+    #[cfg(unix)]
+    #[test]
+    fn command_execution_flows_through_confirmation_and_result_dialogs() {
+        let mut document =
+            markdown::parse("- [ ] print a message\n\n```sh\nprintf 'hello from test'\n```\n")
+                .unwrap();
+        let mut state = AppState::default();
+        let path = Path::new("runbook.md");
+
+        assert!(!handle_key(
+            &mut state,
+            &mut document,
+            path,
+            KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE),
+        )
+        .unwrap());
+        assert!(matches!(state.overlay, Some(Overlay::Confirm { .. })));
+
+        assert!(!handle_key(
+            &mut state,
+            &mut document,
+            path,
+            KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE),
+        )
+        .unwrap());
+        assert!(matches!(
+            state.overlay,
+            Some(Overlay::Result { ref output, scroll: 0 }) if output.contains("hello from test")
+        ));
+
+        handle_key(
+            &mut state,
+            &mut document,
+            path,
+            KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
+        )
+        .unwrap();
+        assert!(matches!(
+            state.overlay,
+            Some(Overlay::Result { scroll: 1, .. })
+        ));
+
+        handle_key(
+            &mut state,
+            &mut document,
+            path,
+            KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE),
+        )
+        .unwrap();
+        assert!(state.overlay.is_none());
+    }
+
+    #[test]
+    fn q_cancels_confirmation_without_running_a_command() {
+        let mut document =
+            markdown::parse("- [ ] print a message\n\n```sh\necho should-not-run\n```\n").unwrap();
+        let mut state = AppState::default();
+        let path = Path::new("runbook.md");
+        state.overlay = Some(Overlay::Confirm {
+            command: "echo should-not-run".into(),
+        });
+
+        handle_key(
+            &mut state,
+            &mut document,
+            path,
+            KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE),
+        )
+        .unwrap();
+        assert!(state.overlay.is_none());
+        assert_eq!(state.status_message, "Command execution cancelled");
+    }
 }

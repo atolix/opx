@@ -261,4 +261,17 @@ mod tests {
         assert_eq!(document.tasks.len(), 1);
         assert_eq!(document.tasks[0].title, "real");
     }
+
+    #[test]
+    fn saves_and_reloads_the_markdown_source() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("runbook.md");
+        let document = parse("# Test\n\n- [ ] verify\n").unwrap();
+
+        save(&path, &document).unwrap();
+
+        let loaded = load(&path).unwrap();
+        assert_eq!(loaded.source, document.source);
+        assert_eq!(loaded.tasks[0].title, "verify");
+    }
 }
