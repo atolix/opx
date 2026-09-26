@@ -11,15 +11,23 @@ use crate::{markdown, tui};
     about = "Operate a Markdown runbook from the terminal"
 )]
 pub struct Cli {
+    /// Markdown runbook to open in the TUI. This is the default operation.
+    file: Option<PathBuf>,
     #[command(subcommand)]
-    command: Command,
+    command: Option<Command>,
 }
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    Tui {
-        file: PathBuf,
+    /// Run a non-interactive operation.
+    Cli {
+        #[command(subcommand)]
+        command: CliCommand,
     },
+}
+
+#[derive(Debug, Subcommand)]
+enum CliCommand {
     Status {
         file: PathBuf,
         #[arg(long)]
@@ -51,9 +59,18 @@ enum Command {
 }
 
 pub fn run() -> Result<()> {
-    match Cli::parse().command {
-        Command::Tui { file } => tui::run(&file),
-        Command::Status { file, json } => {
+    let cli = Cli::parse();
+    match (cli.file, cli.command) {
+        (Some(file), None) => tui::run(&file),
+        (None, Some(Command::Cli { command })) => run_cli(command),
+        (Some(_), Some(_)) => anyhow::bail!("a Markdown file cannot be combined with a subcommand"),
+        (None, None) => anyhow::bail!("provide a Markdown file or use `opx cli <command>`"),
+    }
+}
+
+fn run_cli(command: CliCommand) -> Result<()> {
+    match command {
+        CliCommand::Status { file, json } => {
             let document = markdown::load(&file)?;
             if json {
                 println!(
@@ -70,14 +87,14 @@ pub fn run() -> Result<()> {
             }
             Ok(())
         }
-        Command::Next { file, json } => {
+        CliCommand::Next { file, json } => {
             let document = markdown::load(&file)?;
             let task = document.next_unchecked(None).context("no unchecked task")?;
             print_task(task, json)
         }
-        Command::Check { file, index, json } => set_checked(&file, index, true, json),
-        Command::Uncheck { file, index, json } => set_checked(&file, index, false, json),
-        Command::Copy { file, index, json } => {
+        CliCommand::Check { file, index, json } => set_checked(&file, index, true, json),
+        CliCommand::Uncheck { file, index, json } => set_checked(&file, index, false, json),
+        CliCommand::Copy { file, index, json } => {
             let document = markdown::load(&file)?;
             let task = document
                 .tasks
@@ -122,4 +139,24 @@ fn print_task(task: &crate::document::Task, json: bool) -> Result<()> {
         println!("{}: {}", task.index, task.title);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    #[test]
+    fn markdown_file_is_the_default_operation() {
+        let cli = Cli::try_parse_from(["opx", "runbook.md"]).unwrap();
+        assert!(cli.file.is_some());
+        assert!(cli.command.is_none());
+    }
+
+    #[test]
+    fn non_interactive_commands_are_under_cli() {
+        let cli = Cli::try_parse_from(["opx", "cli", "status", "runbook.md", "--json"]).unwrap();
+        assert!(matches!(cli.command, Some(Command::Cli { .. })));
+        assert!(cli.file.is_none());
+    }
 }

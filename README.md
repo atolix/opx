@@ -30,14 +30,21 @@ A fenced code block immediately following a task (blank lines are allowed) is as
 
 ## CLI
 
+Opening a Markdown file is the default operation and starts the TUI:
+
 ```sh
-opx tui runbook.md
-opx status runbook.md
-opx status runbook.md --json
-opx next runbook.md --json
-opx check runbook.md 0
-opx uncheck runbook.md 0
-opx copy runbook.md 0
+opx runbook.md
+```
+
+Use the `cli` namespace for non-interactive operations:
+
+```sh
+opx cli status runbook.md
+opx cli status runbook.md --json
+opx cli next runbook.md --json
+opx cli check runbook.md 0
+opx cli uncheck runbook.md 0
+opx cli copy runbook.md 0
 ```
 
 Task indexes start at 0. Normal output goes to stdout, errors and warnings go to stderr, and `next` exits non-zero when there are no unchecked tasks.
