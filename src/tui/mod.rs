@@ -1,11 +1,7 @@
-#[path = "tui_command.rs"]
-mod tui_command;
-#[path = "tui_input.rs"]
-mod tui_input;
-#[path = "tui_state.rs"]
-mod tui_state;
-#[path = "tui_view.rs"]
-mod tui_view;
+mod command;
+mod input;
+mod state;
+mod view;
 
 use anyhow::Result;
 use crossterm::{
@@ -17,9 +13,9 @@ use ratatui::{backend::CrosstermBackend, Terminal};
 use std::{io::stdout, path::Path};
 
 use crate::{document::Document, markdown};
-use tui_input::handle_key;
-use tui_state::AppState;
-use tui_view::draw;
+use input::handle_key;
+use state::AppState;
+use view::draw;
 
 pub fn run(path: &Path) -> Result<()> {
     let mut document = markdown::load(path)?;

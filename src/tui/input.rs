@@ -5,8 +5,8 @@ use std::path::Path;
 use crate::{document::Document, markdown};
 
 use super::{
-    tui_command::{copy_selected, execute_overlay_command},
-    tui_state::{AppState, Overlay},
+    command::{copy_selected, execute_overlay_command},
+    state::{AppState, Overlay},
 };
 
 pub(crate) fn handle_key(

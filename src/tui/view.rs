@@ -5,7 +5,7 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
 };
 
-use super::tui_state::{AppState, Overlay};
+use super::state::{AppState, Overlay};
 use crate::document::Document;
 
 pub(crate) fn draw(frame: &mut ratatui::Frame, document: &Document, state: &AppState) {

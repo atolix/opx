@@ -3,7 +3,7 @@ use std::process::{Command, Output};
 
 use crate::document::Document;
 
-use super::tui_state::Overlay;
+use super::state::Overlay;
 
 pub(crate) fn execute_overlay_command(command: &str) -> Overlay {
     match run_shell_command(command) {
