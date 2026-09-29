@@ -44,18 +44,13 @@ pub(crate) fn draw(frame: &mut ratatui::Frame, document: &Document, state: &AppS
     if state.detail {
         let panes = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(64), Constraint::Percentage(36)])
+            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
             .split(chunks[1]);
         frame.render_widget(
             Paragraph::new(task_lines(document, state.selected)).block(runbook_block()),
             panes[0],
         );
-        frame.render_widget(
-            Paragraph::new(detail_lines(document, state.selected))
-                .block(Block::default().borders(Borders::ALL).title("Detail"))
-                .wrap(Wrap { trim: false }),
-            panes[1],
-        );
+        draw_detail(frame, panes[1], document, state.selected);
     } else {
         frame.render_widget(
             Paragraph::new(task_lines(document, state.selected)).block(runbook_block()),
@@ -75,6 +70,36 @@ pub(crate) fn draw(frame: &mut ratatui::Frame, document: &Document, state: &AppS
     if let Some(overlay) = &state.overlay {
         draw_overlay(frame, overlay);
     }
+}
+
+fn draw_detail(frame: &mut ratatui::Frame, area: Rect, document: &Document, selected: usize) {
+    let outer = Block::default().borders(Borders::ALL).title("Detail");
+    let inner = outer.inner(area);
+    frame.render_widget(outer, area);
+    let lines = detail_lines(document, selected);
+    let Some(task) = document.tasks.get(selected) else {
+        frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
+        return;
+    };
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(lines.len() as u16), Constraint::Min(3)])
+        .split(inner);
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), chunks[0]);
+    let title = match &task.language {
+        Some(language) if !language.is_empty() => format!("Command [{language}]"),
+        _ => "Command".to_string(),
+    };
+    let code_block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan))
+        .title(title);
+    frame.render_widget(
+        Paragraph::new(task.command.as_deref().unwrap_or("(none)"))
+            .block(code_block)
+            .wrap(Wrap { trim: false }),
+        chunks[1],
+    );
 }
 
 fn draw_overlay(frame: &mut ratatui::Frame, overlay: &Overlay) {
@@ -228,16 +253,5 @@ fn detail_lines(document: &Document, selected: usize) -> Vec<Line<'static>> {
         lines.extend(details.lines().map(|line| Line::from(format!("  {line}"))));
     }
     lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(
-        "Command",
-        Style::default()
-            .fg(Color::Cyan)
-            .add_modifier(Modifier::BOLD),
-    )));
-    if let Some(command) = &task.command {
-        lines.extend(command.lines().map(|line| Line::from(format!("  {line}"))));
-    } else {
-        lines.push(Line::from("  (none)"));
-    }
     lines
 }
